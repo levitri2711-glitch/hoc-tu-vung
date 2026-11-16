@@ -154,8 +154,7 @@
       render(items[i++]);
     }
     function header(item) {
-      return html`<div class="progress-line"><i style="width:${(i / items.length) * 100}%"></i></div>
-        <div class="row small muted" style="margin-bottom:8px"><span>Bài ${i} / ${items.length}</span><span class="tag">${SKILL_NAME[item.skill]}</span><span class="spacer"></span></div>
+      return html`<div class="fc-top small muted"><span>${i} / ${items.length}</span><div class="progress-line"><i style="width:${(i / items.length) * 100}%"></i></div><span class="tag">${SKILL_NAME[item.skill]}</span></div>
         <h2 style="margin-top:0">${TITLES[item.type]}</h2>`;
     }
     function feedbackCard(item, ok, extra) {
@@ -167,7 +166,7 @@
         ${w.examples[0] ? `<div class="ex"><div class="en">${esc(w.examples[0].en)}</div><div class="vi">${esc(w.examples[0].vi)}</div></div>` : ''}
         ${item.cloze && /passage/.test(item.type) && (item.cloze.vi || item.cloze.paraVi) ? `<details style="margin-top:6px"><summary class="small">Bản dịch đoạn văn</summary><p class="small">${esc(item.cloze.vi || item.cloze.paraVi)}</p></details>` : ''}
         ${extra || ''}</div>
-        <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn primary" id="nx">Tiếp tục (Enter)</button></div>`;
+        <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn primary" id="nx">Tiếp tục<kbd class="on-desk">Enter</kbd></button></div>`;
     }
     function bindNext(el) {
       el.querySelector('#nx').onclick = next;
@@ -256,7 +255,7 @@
       else if (item.type === 'read-syn') prompt = html`<p style="font-size:18px">Từ nào gần nghĩa nhất với <b>${w.word}</b> (${meaningVi(w)})?</p>`;
       box.innerHTML = header(item) + `<div class="card">${prompt}
         <div class="choices">${item.options.map((o, k) => html`<button class="btn choice" data-k="${k}"><b>${'ABCD'[k]}.</b>&nbsp;${o.label}</button>`).join('')}</div>
-        <div class="row" style="margin-top:10px"><button class="btn" id="fifty">Gợi ý 50:50</button><span class="spacer"></span><span class="small muted">Phím 1–4 để chọn</span></div>
+        <div class="row" style="margin-top:10px"><button class="btn" id="fifty">Gợi ý 50:50</button><span class="spacer"></span><span class="small muted on-desk">Phím 1–4 để chọn</span></div>
         </div><div id="fb"></div>`;
       if (isListen) { const say = () => Speech.say(w.word); box.querySelector('#play').onclick = say; setTimeout(say, 250); }
       let used5050 = false;
@@ -421,8 +420,8 @@
         bySub[sub].forEach((p) => { const w = pack.words.find((x) => x.word_id === p.word_id); if (w) words.push(w); });
       }
     } catch (e) { return A.fail('review', e); }
-    A.shell('review', `<div class="ex-card"><h1>Ôn tập · ${words.length} từ</h1>
-      <p class="muted small">Bước 1: lật toàn bộ flashcard (bắt buộc). Bước 2: mỗi từ một bài kỹ năng (Listening → Reading → Writing → Speaking xoay vòng). Đạt bài thì từ lên cấp.</p>
+    A.shell('review', `<div class="ex-card"><div class="page-head"><h1>Ôn tập · ${words.length} từ</h1><a class="small" href="#/">Thoát</a></div>
+      <ol class="steps small"><li class="on">Flashcard</li><li id="step2">Bài kỹ năng</li></ol>
       <div id="stage"></div></div>`);
     const box = document.getElementById('stage');
     const flashOk = {};
@@ -433,6 +432,7 @@
         const unrated = words.filter((w) => flashOk[w.word_id] === undefined);
         if (unrated.length) { toast(`Còn ${unrated.length} thẻ chưa đánh giá Nhớ/Chưa nhớ`); }
         box.innerHTML = '<div class="notice">Xong bước 1. Bắt đầu bài tổng hợp…</div>';
+        const st2 = document.getElementById('step2'); if (st2) st2.classList.add('on');
         const paras = await loadParas(words);
         const items = words.map((w) => buildItem(w, S.skillFor(Progress.get(w.word_id)), pool, paras[subOf(w)]));
         A.setCleanup(runExercises(box, items, {

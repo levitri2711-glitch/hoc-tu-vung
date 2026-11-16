@@ -1,5 +1,5 @@
 // Service worker: lưu giao diện để mở được khi mất mạng; không lưu dữ liệu gọi máy chủ (POST) hay tài nguyên bên ngoài.
-const VERSION = 'vol-shell-v6';
+const VERSION = 'vol-shell-v7';
 const SHELL = ['./', 'index.html', 'app.css', 'config.js', 'icon.svg', 'manifest.webmanifest',
   'js/parse.js', 'js/srs.js', 'js/lib.js', 'js/grading.js', 'js/legal.js', 'js/app.js', 'js/exercises.js', 'js/manage.js'];
 

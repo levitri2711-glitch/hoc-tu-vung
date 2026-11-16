@@ -17,17 +17,32 @@
   function lvPill(lv) { return lv === null || lv === undefined ? '<span class="tag">Chưa học</span>' : `<span class="lvpill" style="background:${LV_COLORS[lv]}">${esc(S.LEVELS[lv])}</span>`; }
 
   // ---------- Khung ----------
+  const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const NAV_ICON = {
+    home: svg('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>'),
+    decks: svg('<rect x="3" y="7" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/>'),
+    review: svg('<path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/>'),
+    admin: svg('<path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3z"/>'),
+    settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+  };
+  // Trang học (flashcard, luyện tập, ôn): chế độ tập trung — ẩn thanh tab dưới trên điện thoại.
+  const isFocusRoute = () => /^#\/(flash|practice|review)\b/.test(location.hash || '');
+
   function shell(active, body) {
     const links = [['#/', 'Trang chủ', 'home'], ['#/decks', 'Bộ từ', 'decks']];
     if (can.learn()) links.push(['#/review', 'Ôn tập', 'review']);
     if (can.edit()) links.push(['#/admin', 'Quản trị', 'admin']);
     links.push(['#/settings', 'Cài đặt', 'settings']);
+    const due = can.learn() ? dueCount() : 0;
+    const item = ([h, t, k]) => `<a href="${h}" class="${k === active ? 'active' : ''}" ${k === active ? 'aria-current="page"' : ''}>${NAV_ICON[k]}<span>${t}</span>${k === 'review' && due ? `<em class="badge" aria-label="${due} từ đến hạn">${due > 99 ? '99+' : due}</em>` : ''}</a>`;
+    document.body.classList.toggle('focus', isFocusRoute());
     $app().innerHTML = `
-      <header class="topbar">
-        <a class="brand" href="#/">Học từ vựng</a>
-        <nav class="nav" aria-label="Điều hướng chính">${links.map(([h, t, k]) => `<a href="${h}" class="${k === active ? 'active' : ''}">${t}</a>`).join('')}</nav>
-      </header>
-      <main id="main">${body}</main>`;
+      <header class="topbar"><div class="topbar-in">
+        <a class="brand" href="#/"><span class="logo" aria-hidden="true">V</span>Học từ vựng</a>
+        <nav class="nav" aria-label="Điều hướng chính">${links.map(item).join('')}</nav>
+      </div></header>
+      <main id="main">${body}</main>
+      <nav class="tabbar" aria-label="Điều hướng chính">${links.map(item).join('')}</nav>`;
   }
   function loading(active) { shell(active, '<p class="muted">Đang tải…</p>'); }
   function fail(active, e) { shell(active, html`<div class="notice bad">${e.message || e}</div>`); }
@@ -139,22 +154,28 @@
     items.forEach((p) => { counts[p.level || 0]++; });
     const next = items.filter((p) => p.next_due_at && !S.isAvailable(p, now)).sort((a, b) => new Date(a.next_due_at) - new Date(b.next_due_at))[0];
     const roots = Data.decks.filter((d) => !d.parent_id);
+    const name = String(user.name || user.email.split('@')[0]);
+    const hour = now.getHours();
+    const hello = hour < 11 ? 'Chào buổi sáng' : hour < 18 ? 'Chào buổi chiều' : 'Chào buổi tối';
+    // "Tiếp tục học": các bộ đã có từ đang học, nhiều nhất 4 bộ; chưa học bộ nào thì gợi ý 4 bộ đầu.
+    const started = roots.map((d) => ({ d, pr: deckProgress(d.deck_id) })).filter((x) => x.pr.n > 0).sort((a, b) => b.pr.n - a.pr.n).map((x) => x.d);
+    const recent = (started.length ? started : roots.slice().sort((a, b) => (a.builtin === b.builtin ? 0 : a.builtin ? 1 : -1))).slice(0, 4);
+    const nextText = next ? new Date(next.next_due_at).toLocaleString('vi-VN', { weekday: 'long', hour: '2-digit', minute: '2-digit' }) : '';
     shell('home', `
-      <h1>Chào ${esc(user.email)}</h1>
-      <p class="muted small">Quyền: <span class="tag ${user.role === 'owner' ? 'owner' : ''}">${esc(user.role_label)}</span> · Giờ nhắc ôn: ${esc(Progress.reminder())}</p>
+      <div class="narrow">
+      <p class="eyebrow">${hello}</p>
+      <h1>${esc(name)}</h1>
       ${can.learn() ? `
-      <div class="card">
-        <div class="row">
-          <div><b style="font-size:28px">${due.length}</b> <span class="muted">từ đến hạn ôn</span>
-          ${next ? `<div class="small muted">Lần ôn kế tiếp: ${esc(new Date(next.next_due_at).toLocaleString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))}</div>` : ''}</div>
-          <span class="spacer"></span>
-          <a class="btn primary" href="#/review" ${due.length ? '' : 'aria-disabled="true"'}>Ôn ngay</a>
-        </div>
-        <div class="bar" title="Phân bố mức độ">${counts.map((c, i) => c ? `<i style="width:${(c / Math.max(1, items.length)) * 100}%;background:${LV_COLORS[i]}"></i>` : '').join('')}</div>
-        <div class="legend" style="margin-top:8px">${S.LEVELS.map((l, i) => `<span><i style="background:${LV_COLORS[i]}"></i>${l}: ${counts[i]}</span>`).join('')}</div>
-      </div>` : '<div class="notice">Tài khoản Viewer chỉ xem được bộ từ. Liên hệ quản trị viên nếu muốn học và luyện tập.</div>'}
-      <h2>Bộ từ</h2>
-      ${decksGrid(roots)}
+      <section class="card hero">
+        <div class="hero-num"><b>${due.length}</b><span>từ cần ôn hôm nay</span></div>
+        <p class="muted small">${due.length ? 'Ôn xong trước giờ nhắc để giữ nhịp ghi nhớ.' : next ? 'Đã ôn hết. Lần ôn kế tiếp: ' + esc(nextText) + '.' : 'Chưa có từ nào trong lịch ôn. Học vài thẻ mới để bắt đầu.'}</p>
+        ${due.length ? '<a class="btn primary lg block" href="#/review">Bắt đầu ôn</a>' : `<a class="btn primary lg block" href="${recent[0] ? '#/deck/' + esc(recent[0].deck_id) : '#/decks'}">Học từ mới</a>`}
+        ${items.length ? `<div class="bar" title="Phân bố mức độ">${counts.map((c, i) => c ? `<i style="width:${(c / items.length) * 100}%;background:${LV_COLORS[i]}"></i>` : '').join('')}</div>
+        <div class="legend">${S.LEVELS.map((l, i) => counts[i] ? `<span><i style="background:${LV_COLORS[i]}"></i>${l} ${counts[i]}</span>` : '').join('')}</div>` : ''}
+      </section>` : '<div class="notice">Tài khoản Viewer chỉ xem được bộ từ. Liên hệ quản trị viên nếu muốn học và luyện tập.</div>'}
+      <div class="section-head"><h2>${started.length ? 'Tiếp tục học' : 'Bắt đầu với'}</h2><a href="#/decks">Tất cả bộ từ →</a></div>
+      ${decksList(recent)}
+      </div>
     `);
   }
 
@@ -165,19 +186,22 @@
     return { n, learned };
   }
 
+  function deckRow(d) {
+    const pr = deckProgress(d.deck_id);
+    const pct = d.word_count ? Math.min(100, Math.round((pr.n / d.word_count) * 100)) : 0;
+    const vis = d.builtin ? '' : d.visibility === 'private' ? 'Riêng tư' : d.visibility === 'shared' ? 'Chia sẻ' : 'Công khai';
+    return html`<a class="deck" href="#/deck/${d.deck_id}" data-title="${d.title.toLowerCase()}">
+      <span class="deck-main"><span class="title">${d.title}</span>
+        <span class="small muted">${d.word_count} từ${pr.n ? raw(` · đã học ${pr.n}`) : ''}${vis ? raw(` · ${esc(vis)}`) : ''}</span></span>
+      <span class="ring" style="--p:${pct}" title="Đã học ${pct}%"><span>${pct}%</span></span>
+    </a>`;
+  }
+  function decksList(list) {
+    if (!list.length) return '<p class="muted small">Chưa có bộ từ nào.</p>';
+    return `<div class="decks">${list.map(deckRow).join('')}</div>`;
+  }
   function decksGrid(list) {
-    if (!list.length) return '<p class="muted">Chưa có bộ từ nào.</p>';
-    list = list.slice().sort((a, b) => (a.builtin === b.builtin ? a.deck_id.localeCompare(b.deck_id) : a.builtin ? 1 : -1));
-    return `<div class="grid">${list.map((d) => {
-      const pr = deckProgress(d.deck_id);
-      const pct = d.word_count ? Math.round((pr.n / d.word_count) * 100) : 0;
-      return html`<a class="card deck" href="#/deck/${d.deck_id}">
-        <div class="title">${d.title}</div>
-        <div class="small muted">${d.word_count} từ · ${d.builtin ? 'Bộ có sẵn' : d.visibility === 'private' ? 'Riêng tư' : d.visibility === 'shared' ? 'Được chia sẻ' : 'Công khai'}</div>
-        <div class="bar"><i style="width:${pct}%;background:var(--accent)"></i></div>
-        <div class="small muted" style="margin-top:4px">Đã học ${pr.n} · Đã thuộc ${pr.learned}</div>
-      </a>`;
-    }).join('')}</div>`;
+    return decksList(list.slice().sort((a, b) => a.deck_id.localeCompare(b.deck_id, 'en', { numeric: true })));
   }
 
   function viewDecks() {
@@ -185,10 +209,19 @@
     const builtin = roots.filter((d) => d.builtin);
     const mine = roots.filter((d) => !d.builtin);
     shell('decks', `
-      <div class="row"><h1>Bộ từ</h1><span class="spacer"></span>${can.learn() ? '<a class="btn primary" href="#/new-deck">+ Tạo bộ từ</a>' : ''}</div>
-      <h2>Bộ của bạn và được chia sẻ</h2>${decksGrid(mine)}
-      <h2>Bộ có sẵn (VOL)</h2>${decksGrid(builtin)}
+      <div class="page-head"><h1>Bộ từ</h1>${can.learn() ? '<a class="btn primary" href="#/new-deck">+ Tạo bộ</a>' : ''}</div>
+      <input id="dq" class="input search" type="search" placeholder="Tìm bộ từ…" aria-label="Tìm bộ từ">
+      ${mine.length || can.learn() ? `<section class="dsec"><h2 class="label">Bộ của bạn</h2>${mine.length ? decksGrid(mine) : '<p class="muted small">Chưa có. Bấm “+ Tạo bộ” để thêm từ của riêng bạn.</p>'}</section>` : ''}
+      <section class="dsec"><h2 class="label">Bộ có sẵn · VOL</h2>${decksGrid(builtin)}</section>
+      <p id="dq-none" class="muted small" hidden>Không tìm thấy bộ nào.</p>
     `);
+    document.getElementById('dq').oninput = (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      let shown = 0;
+      document.querySelectorAll('.decks .deck').forEach((a) => { const ok = !q || a.dataset.title.includes(q); a.hidden = !ok; shown += ok; });
+      document.querySelectorAll('.dsec').forEach((sec) => { sec.hidden = !!q && !sec.querySelector('.deck:not([hidden])'); });
+      document.getElementById('dq-none').hidden = shown > 0;
+    };
   }
 
   // ---------- Trang một bộ ----------
@@ -198,32 +231,44 @@
     const parent = d.parent_id ? Data.deck(d.parent_id) : null;
     const kids = Data.children(id);
     const pr = deckProgress(id);
+    const pct = d.word_count ? Math.min(100, Math.round((pr.n / d.word_count) * 100)) : 0;
+    const SK = [['L', 'Listening', 'Nghe & gõ'], ['R', 'Reading', 'Đọc & chọn'], ['W', 'Writing', 'Viết câu'], ['S', 'Speaking', 'Nói câu']];
+    const manage = d.can_edit && !d.builtin
+      ? html`<a class="btn" href="#/add/${id}">+ Thêm từ</a><a class="btn" href="#/share/${id}">Chia sẻ</a><button class="btn" id="deck-edit">Sửa tên / mô tả</button><button class="btn" id="deck-xlsx">Tải về Excel</button><button class="btn danger" id="deck-del">Xoá bộ</button>`
+      : d.can_edit && d.builtin && can.edit() ? html`<a class="btn" href="#/add/${id}">+ Thêm từ</a>` : '';
     shell('decks', `
-      <p class="small"><a href="#/decks">Bộ từ</a>${parent ? html` / <a href="#/deck/${parent.deck_id}">${parent.title}</a>` : ''}</p>
-      <h1>${esc(d.title)}</h1>
-      <p class="muted small">${d.word_count} từ · đã học ${pr.n} · đã thuộc ${pr.learned}${d.description ? ' · ' + esc(d.description) : ''}</p>
-      <div class="card">
-        <div class="row" style="margin-bottom:10px">
-          <label class="small">Thứ tự <select id="order" class="input" style="width:auto;min-height:34px"><option value="orig">Theo thứ tự gốc</option><option value="random">Ngẫu nhiên</option></select></label>
-          <label class="small">Trạng thái <select id="filter" class="input" style="width:auto;min-height:34px">
+      <div class="narrow">
+      <nav class="crumb small" aria-label="Đường dẫn"><a href="#/decks">Bộ từ</a>${parent ? html`<span>/</span><a href="#/deck/${parent.deck_id}">${parent.title}</a>` : ''}</nav>
+      <h1>${esc(parent ? d.title.replace(parent.title + ' – ', '') : d.title)}</h1>
+      <p class="muted small">${d.word_count} từ · đã học ${pr.n} · đã thuộc ${pr.learned}${d.description && !d.builtin ? ' · ' + esc(d.description) : ''}</p>
+      <div class="bar thin"><i style="width:${pct}%;background:var(--accent)"></i></div>
+
+      <div class="actions">
+        <button class="btn primary lg" data-go="flash">Học flashcard</button>
+        <a class="btn lg" href="#/sheet/${id}">Bảng từ</a>
+      </div>
+      ${can.learn() ? `
+      <h2 class="label">Luyện kỹ năng</h2>
+      <div class="skills">
+        ${SK.map(([k, t, s]) => `<button class="skill" data-go="practice" data-skill="${k}"><b>${k}</b><span>${t}</span><small>${s}</small></button>`).join('')}
+        <button class="skill mix" data-go="practice" data-skill="MIX"><b>✦</b><span>Tổng hợp</span><small>Cả 4 kỹ năng</small></button>
+      </div>` : ''}
+      <details class="opts"><summary>Tuỳ chọn thẻ: <span id="optsum">thứ tự gốc · tất cả</span></summary>
+        <div class="row">
+          <label class="small">Thứ tự <select id="order" class="input sm"><option value="orig">Theo thứ tự gốc</option><option value="random">Ngẫu nhiên</option></select></label>
+          <label class="small">Trạng thái <select id="filter" class="input sm">
             <option value="all">Tất cả</option><option value="new">Chưa học</option><option value="due">Đến hạn</option>
             ${S.LEVELS.slice(1).map((l, i) => `<option value="${i + 1}">${l}</option>`).join('')}</select></label>
         </div>
-        <div class="modes">
-          <a class="btn" data-go="flash">Flashcard</a>
-          <a class="btn" href="#/sheet/${id}">Bảng từ</a>
-          ${can.learn() ? `
-          <a class="btn" data-go="practice" data-skill="L">Listening</a>
-          <a class="btn" data-go="practice" data-skill="R">Reading</a>
-          <a class="btn" data-go="practice" data-skill="W">Writing</a>
-          <a class="btn" data-go="practice" data-skill="S">Speaking</a>
-          <a class="btn" data-go="practice" data-skill="MIX">Tổng hợp</a>` : ''}
-        </div>
+      </details>
+
+      ${kids.length ? `<h2 class="label">Theo test</h2><div class="sublist">${kids.map((k) => { const kp = deckProgress(k.deck_id); return html`<a href="#/deck/${k.deck_id}"><b>${k.title.replace(d.title + ' – ', '')}</b><span class="small muted">${k.word_count} từ${kp.n ? raw(' · ' + kp.n + ' đã học') : ''}</span></a>`; }).join('')}</div>` : ''}
+      ${manage ? `<details class="opts manage"><summary>Quản lý bộ</summary><div class="row">${manage}</div></details>` : ''}
       </div>
-      ${kids.length ? `<h2>Theo test</h2><div class="sublist">${kids.map((k) => html`<a href="#/deck/${k.deck_id}"><b>${k.title.replace(d.title + ' – ', '')}</b><div class="small muted">${k.word_count} từ</div></a>`).join('')}</div>` : ''}
-      ${d.can_edit && !d.builtin ? html`<h2>Quản lý bộ</h2><div class="row"><a class="btn" href="#/add/${id}">+ Thêm từ</a><a class="btn" href="#/share/${id}">Chia sẻ</a><button class="btn" id="deck-edit">Sửa tên / mô tả</button><button class="btn" id="deck-xlsx">Tải về Excel</button><span class="spacer"></span><button class="btn danger" id="deck-del">Xoá bộ</button></div>` : ''}
-      ${d.can_edit && d.builtin && can.edit() ? html`<h2>Quản lý bộ</h2><div class="row"><a class="btn" href="#/add/${id}">+ Thêm từ</a></div>` : ''}
     `);
+    const sum = () => { document.getElementById('optsum').textContent = `${document.getElementById('order').selectedOptions[0].text.toLowerCase()} · ${document.getElementById('filter').selectedOptions[0].text.toLowerCase()}`; };
+    document.getElementById('order').onchange = sum;
+    document.getElementById('filter').onchange = sum;
     const de = document.getElementById('deck-edit');
     if (de) de.onclick = () => editDeck(d);
     const dx = document.getElementById('deck-xlsx');
@@ -469,26 +514,27 @@
       const w = words[i];
       flipped = false;
       container.innerHTML = `
-        <div class="progress-line"><i style="width:${((i + 1) / words.length) * 100}%"></i></div>
-        <div class="row small muted" style="margin-bottom:8px"><span>Thẻ ${i + 1} / ${words.length}</span><span class="spacer"></span>${lvPill(levelOf(w.word_id))}</div>
+        <div class="fc-top small muted"><span>${i + 1} / ${words.length}</span><div class="progress-line"><i style="width:${((i + 1) / words.length) * 100}%"></i></div>${lvPill(levelOf(w.word_id))}</div>
         <div class="fc" id="fc" tabindex="0" role="button" aria-label="Lật thẻ">
           <div class="fc-tools"><button class="icon-btn" id="say" aria-label="Phát âm">${ICON.speaker}</button></div>
           <div class="fc-inner">
-            <div class="fc-face fc-front"><div class="fc-word" id="fw" style="width:100%">${esc(w.word)}</div>${w.headnote ? `<div class="small muted">${esc(w.headnote)}</div>` : ""}<div class="fc-ipa ipa">${esc(w.ipa)}</div><div class="small muted">Chạm hoặc nhấn Space để lật</div></div>
+            <div class="fc-face fc-front"><div class="fc-word" id="fw" style="width:100%">${esc(w.word)}</div>${w.headnote ? `<div class="small muted">${esc(w.headnote)}</div>` : ""}<div class="fc-ipa ipa">${esc(w.ipa)}</div><div class="fc-hint small muted"><span class="on-touch">Chạm để lật</span><span class="on-desk">Nhấn Space để lật</span></div></div>
             <div class="fc-face fc-back"><div class="fc-body" id="fb">${cardBack(w, byFamily[w.family_id] || [w])}</div></div>
           </div>
         </div>
-        ${opts.rate ? `<div class="fc-rate"><button class="btn no" id="no">Chưa nhớ <span class="small muted">(1)</span></button><button class="btn yes" id="yes">Nhớ <span class="small muted">(2)</span></button></div>` : ''}
-        <div class="fc-nav">
-          <button class="btn" id="prev" ${i === 0 ? 'disabled' : ''}>←</button>
-          <button class="btn" id="flip">Lật thẻ</button>
-          <button class="btn" id="next">${i === words.length - 1 ? 'Xong' : '→'}</button>
+        <div class="fc-bar">
+          <button class="icon-btn" id="prev" aria-label="Thẻ trước" ${i === 0 ? 'disabled' : ''}>←</button>
+          ${opts.rate
+            ? `<button class="btn no" id="no">Chưa nhớ<kbd>1</kbd></button><button class="btn yes" id="yes">Nhớ<kbd>2</kbd></button>`
+            : `<button class="btn" id="flip">Lật thẻ</button>`}
+          <button class="icon-btn" id="next" aria-label="${i === words.length - 1 ? 'Xong' : 'Thẻ sau'}">${i === words.length - 1 ? '✓' : '→'}</button>
         </div>
-        <div class="kbd">Phím tắt: Space/Enter lật · ← → chuyển thẻ${opts.rate ? ' · 1 Chưa nhớ · 2 Nhớ' : ''} · P phát âm</div>`;
+        <div class="kbd on-desk">Space lật · ← → chuyển thẻ · P phát âm</div>`;
       fitText(document.getElementById('fw'), Math.min(64, Math.max(30, 900 / Math.max(6, w.word.length))), 22);
       container.querySelector('#fc').onclick = (e) => { if (!e.target.closest('#say')) flip(); };
       container.querySelector('#say').onclick = () => Speech.say(w.word);
-      container.querySelector('#flip').onclick = flip;
+      const fb = container.querySelector('#flip');
+      if (fb) fb.onclick = flip;
       container.querySelector('#prev').onclick = () => go(-1);
       container.querySelector('#next').onclick = () => go(1);
       if (opts.rate) {
@@ -551,6 +597,8 @@
     shell('settings', `
       <div class="narrow">
       <h1>Cài đặt</h1>
+      <div class="card account"><span class="avatar" aria-hidden="true">${esc(user.email[0].toUpperCase())}</span><div><b>${esc(user.email)}</b><div class="small muted">Quyền: <span class="tag ${user.role === 'owner' ? 'owner' : ''}">${esc(user.role_label)}</span></div></div></div>
+      <h2 class="label">Học &amp; phát âm</h2>
       <div class="card">
         ${can.learn() ? `<label class="field"><span>Giờ nhắc ôn mỗi tối (phải trước 24:00)</span>
           <select id="rh" class="input">${hours.map((h) => `<option ${h === Progress.reminder() ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
@@ -560,7 +608,10 @@
         <label class="field"><span>Tốc độ đọc: <b id="rv">${LS.get('vol.rate', 0.9)}</b></span><input id="rate" type="range" min="0.6" max="1.2" step="0.1" value="${LS.get('vol.rate', 0.9)}" style="width:100%"></label>
         <div class="row"><button class="btn sm" id="test">Nghe thử</button>
         <label class="small"><input type="checkbox" id="autosay" ${LS.get('vol.autosay', true) ? 'checked' : ''}> Tự đọc từ khi mở thẻ</label></div>
-        <label class="field"><span>Giao diện</span><select id="theme" class="input">
+      </div>
+      <h2 class="label">Giao diện</h2>
+      <div class="card">
+        <label class="field"><span>Chế độ màu</span><select id="theme" class="input">
           <option value="auto" ${theme === 'auto' ? 'selected' : ''}>Theo hệ thống</option><option value="light" ${theme === 'light' ? 'selected' : ''}>Sáng</option><option value="dark" ${theme === 'dark' ? 'selected' : ''}>Tối</option></select></label>
       </div>
       <p><button class="btn danger" id="logout">Đăng xuất</button></p>
