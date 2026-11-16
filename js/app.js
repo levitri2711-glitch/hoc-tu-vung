@@ -117,7 +117,10 @@
       const me = await Api.call('me');
       user = me.user; LS.set('vol.user', user); LS.set('vol.config', me.config);
       Progress.load();
-      await Promise.all([Data.loadDecks(), can.learn() ? Progress.pull() : null]);
+      // Tải tiến độ lỗi thì vẫn hiện bộ từ (tiến độ trên máy vẫn dùng được, đồng bộ lại sau).
+      const [dk, pg] = await Promise.allSettled([Data.loadDecks(), can.learn() ? Progress.pull() : null]);
+      if (dk.status === 'rejected') throw dk.reason;
+      if (pg.status === 'rejected') toast('Chưa tải được tiến độ từ máy chủ – đang dùng bản trên máy');
     } catch (e) {
       if (e.code === 'network' && user) { Progress.load(); Data.decks = LS.get('vol.decks', []); toast('Đang ngoại tuyến – dùng dữ liệu đã lưu'); }
       else if (!Api.session) return route();
